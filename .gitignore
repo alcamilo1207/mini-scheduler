@@ -1,0 +1,7 @@
+mini-opt.py
+mini.ipynb
+notes.txt
+
+__pycache__/
+.ipynb_checkpoints/
+myenv-mini/
