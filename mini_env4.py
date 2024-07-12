@@ -37,7 +37,8 @@ class CustomEnv(gym.Env):
         
         # Define the observation space
         self.observation_space = spaces.Dict({
-            'remaining_times' : spaces.Box(low=-10, high=96, shape=(3,), dtype=np.int32),
+            'current_machine' : spaces.Discrete(3), 
+            'remaining_time' : spaces.Box(low=-10, high=96, shape=(1,), dtype=np.int32),
             'next_jobs': spaces.Box(low=0, high=10, shape=(3,), dtype=np.int32),
             'future_prices': spaces.Box(low=-15, high=15, shape=(3,), dtype=np.int32),
         })
@@ -47,7 +48,8 @@ class CustomEnv(gym.Env):
         
         # Initialize the obs
         self.obs = {
-            'remaining_time': np.zeros((3,), dtype=np.int32),
+            'current_machine' : 0, 
+            'remaining_time': np.zeros((1,), dtype=np.int32),
             'next_jobs': np.zeros((3,), dtype=np.int32),
             'future_prices': np.zeros((3,), dtype=np.int32)
         }
@@ -63,7 +65,8 @@ class CustomEnv(gym.Env):
 
         # Reset the obs to some initial values
         self.obs = {
-            'remaining_times': np.array([96 - time for time in self.machine_times], dtype=np.int32),
+            'current_machine' : 0, 
+            'remaining_time': np.array([96], dtype=np.int32),
             'next_jobs': np.array(self.available_jobs[:3], dtype=np.int32),
             'future_prices': np.array(self.prices_fx[:3], dtype=np.int32),
         }
@@ -94,9 +97,12 @@ class CustomEnv(gym.Env):
         # Update history and machine times
         self.history.append(self.get_history(job, current_machine, size_of_job, reward))
 
-        # Check if the episode is done (customize this logic as needed)
-        terminated = self.is_terminated()
+        # Check if the episode is done
+        terminated, termination_rew = self.is_terminated()
         truncated = self.is_truncated()
+
+        # Update reward if all jobs are completed at termination
+        reward += termination_rew
 
         if terminated or truncated:
             # Optionally, set additional info
@@ -117,7 +123,8 @@ class CustomEnv(gym.Env):
         self.update_next_jobs(job)
         
         # update observations
-        self.obs['remaining_times'] = np.array([96 - time for time in self.machine_times], dtype=np.int32)
+        self.obs['current_machine'] = next_machine
+        self.obs['remaining_time'] = np.array([96 - self.machine_times[next_machine]], dtype=np.int32)
         self.obs['future_prices'] = np.array(self.prices_fx[next_machine_time: next_machine_time + 3], dtype=np.int32)
 
         self.step_count += 1
@@ -158,44 +165,15 @@ class CustomEnv(gym.Env):
                 return 2 * self.w2
             else:
                 return 0
-
-    
-    def calculate_final_reward(self):
-        mef = 1 if self.machine_eff else 0 # machine efficiency factor
-        epf = 1 if self.energy_prices else 0 # energy prices factor
-
-        size_reward = np.sum(self.obs["sizes"])
-
-        his = np.array(self.history)
-        prices = self.prices_fx
-
-        machines = [[] for _ in range(max(his[:,1])+1)]
-        max_len = 48
-        for item in his:
-            duration, machine, size = item[0], item[1], item[2]
-            for _ in range(duration):
-                if len(machines[machine]) < max_len:
-                    machines[machine].append(1) if size > 0 else machines[machine].append(0)
-
-        for m in machines:
-            if len(machines) < max_len:
-                diff = max_len - len(m)
-                m.extend(np.zeros(diff, dtype=int).tolist())
-
-        cost_penalization = 0
-        for i,m in enumerate(machines):
-            for j, energy in enumerate(m):
-                cost_penalization += energy * prices[j] * (mef*i + 1) * epf
-
-        
-        final_reward = size_reward - cost_penalization
-        
-        return final_reward, size_reward, cost_penalization
-    
+  
     def is_terminated(self):
-        terminated = len(self.available_jobs) < 1 and max(self.obs["next_jobs"]) == 0
+        termination_rew = 0
+        terminated = max(self.obs["next_jobs"]) == 0 # len(self.available_jobs) < 1 and 
+        if terminated:
+            termination_rew += 100 * self.w3
+
         terminated = terminated or max(self.machine_times) > 96
-        return terminated
+        return terminated, termination_rew
     
     def is_truncated(self):
         truncated = self.step_count > 288
