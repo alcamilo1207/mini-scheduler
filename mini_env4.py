@@ -162,7 +162,7 @@ class CustomEnv(gym.Env):
             return size.item() * (1 + self.w1*(1 - current_machine) + (1/cost))
         else:
             if self.obs["future_prices"][0] == 2:
-                return 2 * self.w2
+                return (1 + current_machine) * self.w2
             else:
                 return 0
   
