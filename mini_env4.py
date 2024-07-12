@@ -6,7 +6,7 @@ import numpy as np
 import numpy as np
 
 class CustomEnv(gym.Env):
-    def __init__(self, w1 = 1, w2 = 1, w3 = 1, machine_eff = False, energy_prices = False): 
+    def __init__(self, w1 = 1, w2 = 1, w3 = 1, machine_eff = False, energy_prices = False, test = False): 
         super(CustomEnv, self).__init__()
 
         # Optimizer parameters
@@ -26,14 +26,29 @@ class CustomEnv(gym.Env):
         self.step_count = 0
 
         # Dataset - Jobs
-        self.dataset_jobs.extend([7, 4, 5, 6, 5])
-        self.dataset_jobs.extend([5, 7, 6, 4, 5])
-        for _ in range(2):
-            self.dataset_jobs.extend(self.dataset_jobs)
+        if test:
+            # test: dataset jobs
+            self.dataset_jobs.extend(np.random.randint(low=4, high=7+1, size=40).tolist())
+        else:
+            self.dataset_jobs.extend([7, 4, 5, 6, 5])
+            self.dataset_jobs.extend([5, 7, 6, 4, 5])
+
+            for _ in range(2):
+                self.dataset_jobs.extend(self.dataset_jobs)
+
 
         # Dataset - Energy price (binary e.g., 1: Normal/low, 2: high):
-        self.prices_fx[20:28] = 2
-        self.prices_fx[55:60] = 2
+        if not test:
+            self.prices_fx[20:28] = 2
+            self.prices_fx[55:60] = 2
+        else:
+            # test dataset
+            high_zone_1_start = np.random.randint(low=5, high=45)
+            high_zone_1_len = np.random.randint(low=3, high=10)
+            high_zone_2_start = np.random.randint(low=50, high=90)
+            high_zone_2_len = np.random.randint(low=3, high=10)
+            self.prices_fx[high_zone_1_start:high_zone_1_start+high_zone_1_len] = 2
+            self.prices_fx[high_zone_2_start:high_zone_2_start+high_zone_2_len] = 2
         
         # Define the observation space
         self.observation_space = spaces.Dict({
@@ -180,7 +195,7 @@ class CustomEnv(gym.Env):
         return truncated
 
 
-# env = CustomEnv(energy_prices=True, machine_eff=True)
+# env = CustomEnv(energy_prices=True, machine_eff=True, test=True)
 
 # # Reset the environment
 # obs = env.reset()
