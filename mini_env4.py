@@ -37,7 +37,8 @@ class CustomEnv(gym.Env):
         
         # Define the observation space
         self.observation_space = spaces.Dict({
-            'remaining_times' : spaces.Box(low=-10, high=96, shape=(3,), dtype=np.int32),
+            'current_machine' : spaces.Discrete(3), 
+            'remaining_time' : spaces.Box(low=-10, high=96, shape=(1,), dtype=np.int32),
             'next_jobs': spaces.Box(low=0, high=10, shape=(3,), dtype=np.int32),
             'future_prices': spaces.Box(low=-15, high=15, shape=(3,), dtype=np.int32),
         })
@@ -47,7 +48,8 @@ class CustomEnv(gym.Env):
         
         # Initialize the obs
         self.obs = {
-            'remaining_time': np.zeros((3,), dtype=np.int32),
+            'current_machine' : 0, 
+            'remaining_time': np.zeros((1,), dtype=np.int32),
             'next_jobs': np.zeros((3,), dtype=np.int32),
             'future_prices': np.zeros((3,), dtype=np.int32)
         }
@@ -63,7 +65,8 @@ class CustomEnv(gym.Env):
 
         # Reset the obs to some initial values
         self.obs = {
-            'remaining_times': np.array([96 - time for time in self.machine_times], dtype=np.int32),
+            'current_machine' : 0, 
+            'remaining_time': np.array([96], dtype=np.int32),
             'next_jobs': np.array(self.available_jobs[:3], dtype=np.int32),
             'future_prices': np.array(self.prices_fx[:3], dtype=np.int32),
         }
@@ -117,7 +120,8 @@ class CustomEnv(gym.Env):
         self.update_next_jobs(job)
         
         # update observations
-        self.obs['remaining_times'] = np.array([96 - time for time in self.machine_times], dtype=np.int32)
+        self.obs['current_machine'] = next_machine
+        self.obs['remaining_time'] = np.array([96 - self.machine_times[next_machine]], dtype=np.int32)
         self.obs['future_prices'] = np.array(self.prices_fx[next_machine_time: next_machine_time + 3], dtype=np.int32)
 
         self.step_count += 1
