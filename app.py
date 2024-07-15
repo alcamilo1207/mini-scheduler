@@ -53,7 +53,8 @@ def main():
     x_values = [i*60*2 for i in range(12)]
     x_values3 = [prices_df['Start date'][i*2] for i in range(12)]
 
-    fig1 = get_schedule_plot()
+    prices_profile = EnergyPrices().prices_profile(prices_df)
+    fig1, fig11 = get_schedule_plot(prices_profile) # $$
 
     fig2 = go.Figure()
 
@@ -134,8 +135,8 @@ def main():
         metrics = [
             {"label": "Scheduler performance (production/(energy × cost))", "value": f"{performance:.2} kg/(kWh × €)"},
             {"label": "Total energy cost", "value": f"{total_cost:.5} €"},
-            {"label": "Total energy usage", "value": f"{total_energy} kWh"},
-            {"label": "Total production", "value": f"{total_production} kg"},
+            {"label": "Total energy usage", "value": f"{total_energy:.6} kWh"},
+            {"label": "Total production", "value": f"{total_production:.7} kg"},
             {"label": "Total jobs completed", "value": f"{total_number_of_jobs} jobs"},
         ]
         for i,col in enumerate((row1 + row2)):
@@ -143,6 +144,7 @@ def main():
             cont.metric(metrics[i]["label"],metrics[i]["value"],)
 
         st.plotly_chart(fig1,use_container_width=True)
+        st.plotly_chart(fig11)
         with st.expander("Machine parameters"):
             m_params = pd.DataFrame([[m.id,m.speed,m.energy_usage] for m in scheduler.machines],columns=['Machine','Speed [kg/min]','Energy usage [kWh/min]'])
             m_params.set_index('Machine')

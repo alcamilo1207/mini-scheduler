@@ -6,7 +6,7 @@ import numpy as np
 import numpy as np
 
 class CustomEnv(gym.Env):
-    def __init__(self, w1 = 1, w2 = 1, w3 = 1, machine_eff = False, energy_prices = False, test = False): 
+    def __init__(self, w1 = 1, w2 = 1, w3 = 1, prices_fx = None, machine_eff = False, energy_prices = False, test = False): 
         super(CustomEnv, self).__init__()
 
         # Optimizer parameters
@@ -43,12 +43,17 @@ class CustomEnv(gym.Env):
             self.prices_fx[55:60] = 2
         else:
             # test dataset
-            high_zone_1_start = np.random.randint(low=5, high=45)
-            high_zone_1_len = np.random.randint(low=3, high=10)
-            high_zone_2_start = np.random.randint(low=50, high=90)
-            high_zone_2_len = np.random.randint(low=3, high=10)
-            self.prices_fx[high_zone_1_start:high_zone_1_start+high_zone_1_len] = 2
-            self.prices_fx[high_zone_2_start:high_zone_2_start+high_zone_2_len] = 2
+            if prices_fx is None:
+                print("&&&& Generating random dataset for energy prices")
+                high_zone_1_start = np.random.randint(low=5, high=45)
+                high_zone_1_len = np.random.randint(low=3, high=10)
+                high_zone_2_start = np.random.randint(low=50, high=90)
+                high_zone_2_len = np.random.randint(low=3, high=10)
+                self.prices_fx[high_zone_1_start:high_zone_1_start+high_zone_1_len] = 2
+                self.prices_fx[high_zone_2_start:high_zone_2_start+high_zone_2_len] = 2
+            else:
+                print("&&&& Testing with provided energy prices profile")
+                self.prices_fx[:96] = prices_fx
         
         # Define the observation space
         self.observation_space = spaces.Dict({

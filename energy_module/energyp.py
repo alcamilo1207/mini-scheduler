@@ -502,6 +502,28 @@ class EnergyPrices:
                     print(e)
 
         return performance, total_cost, total_energy, total_production, total_number_of_jobs
+    
+    def prices_profile(self, prices_df):
+        price_profile = []
+        if prices_df.shape == (24,19):
+            prices_str = prices_df[self.region].values
+            try:
+                # Convert prices array values from strings to floats
+                prices = np.array([float(item) for item in prices_str])
+                average = prices.mean()
+                for price in prices:
+                    if price > average:
+                        price_profile.extend([2,2,2,2])
+                    else:
+                        price_profile.extend([1,1,1,1])
+
+            except Exception as e:
+                if str(e) == "could not convert string to float: '-'":
+                    print("Day-ahead prices not available")
+                else:
+                    print(e)
+
+        return price_profile
 
 
 class PV:
