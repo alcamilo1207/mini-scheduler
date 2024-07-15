@@ -62,8 +62,10 @@ def get_schedule_plot(prices_fx = None, color="energy"):
         schedule.append([assigned_to, energy, size, actual_duration, reward])
 
     df = pd.DataFrame(schedule, columns=["assigned_to", "energy","size","actual_duration", "reward"])
-    fig1 = px.bar(df, x="actual_duration", y="assigned_to", color=color, orientation="h")
-    fig1.update_xaxes(range=[0, 96])
+    dates = pd.date_range("2024-01-01", periods=12, freq='2h')
+    x_values = [i*8 for i in range(12)]
+    fig1 = px.bar(df, x="actual_duration", y="assigned_to", color=color, orientation="h")#
+    fig1.update_xaxes(tickvals=x_values, ticktext=[d.strftime('%H:00') for d in dates])
     fig1.update_traces(width=.9)
     fig1.update_coloraxes(colorbar={'orientation':'h', 'thickness':15, 'y': 1.1})
 

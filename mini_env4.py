@@ -27,8 +27,16 @@ class CustomEnv(gym.Env):
 
         # Dataset - Jobs
         if test:
-            # test: dataset jobs
-            self.dataset_jobs.extend(np.random.randint(low=4, high=7+1, size=40).tolist())
+            if prices_fx is None:
+                # test: dataset jobs
+                self.dataset_jobs.extend(np.random.randint(low=4, high=7+1, size=40).tolist())
+            else:
+                self.dataset_jobs.extend([7, 4, 5, 6, 5])
+                self.dataset_jobs.extend([5, 7, 6, 4, 5])
+
+                for _ in range(2):
+                    self.dataset_jobs.extend(self.dataset_jobs)
+
         else:
             self.dataset_jobs.extend([7, 4, 5, 6, 5])
             self.dataset_jobs.extend([5, 7, 6, 4, 5])

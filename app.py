@@ -53,8 +53,6 @@ def main():
     x_values = [i*60*2 for i in range(12)]
     x_values3 = [prices_df['Start date'][i*2] for i in range(12)]
 
-    prices_profile = EnergyPrices().prices_profile(prices_df)
-    fig1, fig11 = get_schedule_plot(prices_profile) # $$
 
     fig2 = go.Figure()
 
@@ -143,6 +141,9 @@ def main():
             cont = col.container(height=120)
             cont.metric(metrics[i]["label"],metrics[i]["value"],)
 
+        option = st.selectbox("Select color scale variable",("energy","size","actual_duration", "reward","assigned_to"))
+        prices_profile = EnergyPrices().prices_profile(prices_df)
+        fig1, fig11 = get_schedule_plot(prices_profile, color=option) # $$
         st.plotly_chart(fig1,use_container_width=True)
         st.plotly_chart(fig11)
         with st.expander("Machine parameters"):
