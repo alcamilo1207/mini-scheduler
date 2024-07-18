@@ -149,6 +149,29 @@ class Scheduler:
 
         sch_df = pd.DataFrame(schedule,columns=sch_df_cols)
         return sch_df.sort_values(by=['start_timestamp'], ascending=[True], ignore_index=True)
+    
+    def _get_schedule(self, schedule, date):
+        new_schedule = []
+        start = datetime(date.year, date.month, date.day, 0, 0)
+        machine_times = [0,0,0]
+        cols = ["assigned_to", "energy", "name", "size", "actual_duration","reward", "start_timestamp", "end_timestamp"]
+        for i, item in enumerate(schedule):
+            assigned_to = item[0]
+            actual_duration = item[3]
+
+            if item[2] > 0:
+                name = f"job {i+1}"
+            else:
+                name = "job 0"
+
+            start_timestamp = start + timedelta(minutes = machine_times[assigned_to])
+            end_timestamp = start_timestamp + timedelta(minutes = actual_duration)
+            machine_times[assigned_to] += actual_duration
+
+            m_label = f"machine {assigned_to}"
+            new_schedule.append([m_label, item[1], name , item[2], actual_duration, item[4], start_timestamp, end_timestamp])
+        
+        return pd.DataFrame(new_schedule, columns=cols)
 
     def get_power(self):
         schedule = self.get_schedule()
@@ -159,6 +182,37 @@ class Scheduler:
             m_schedule = schedule[schedule["assigned_to"] == m_label]
             idle_times = m_schedule[m_schedule["name"] == "job 0"]
             it_int = [self.convert_timestamp_to_minutes(Helper().int_to_time(start,60), duration) for start, duration in
+                      zip(idle_times["start_timestamp"], idle_times["actual_duration"])]
+            m_power = m.speed * m.energy_usage
+            m_pw_sch = np.full(1440, m_power)
+            if len(it_int) > 0:
+                for it in it_int:
+                    start, end = it[0], it[1]
+                    m_pw_sch[start:end] = 0.0
+
+            power_schedules.append(m_pw_sch)
+
+        total_power = np.copy(power_schedules[0])
+        for i in range(1, len(power_schedules)):
+            total_power += power_schedules[i]
+
+        power_schedules.append(total_power)
+        start_time = schedule["start_timestamp"][0]
+        timestamps = pd.date_range(start_time,periods=1440,freq='1min')
+        cols = [f'Machine {i}' for i in range(np.shape(power_schedules)[0]-1)]
+        cols.append('Total power')
+
+        df = pd.DataFrame(np.transpose(power_schedules),index=timestamps,columns=cols)
+        
+        return df
+    
+    def _get_power(self, schedule):
+        power_schedules = []
+        for i, m in enumerate(self.machines):
+            m_label = f"machine {i}"
+            m_schedule = schedule[schedule["assigned_to"] == m_label]
+            idle_times = m_schedule[m_schedule["name"] == "job 0"]
+            it_int = [self.convert_timestamp_to_minutes(start, duration) for start, duration in
                       zip(idle_times["start_timestamp"], idle_times["actual_duration"])]
             m_power = m.speed * m.energy_usage
             m_pw_sch = np.full(1440, m_power)
@@ -503,6 +557,32 @@ class EnergyPrices:
 
         return performance, total_cost, total_energy, total_production, total_number_of_jobs
     
+    def _metrics(self, schedule, prices):
+        machine_power = [132,132,132] # kW
+        machine_eff = [1.5, 1, 0.5]
+        machine_times = [0, 0, 0]
+        total_cost = 0
+        total_number_of_jobs = 0
+        total_production = 0
+        total_energy = 0
+        for item in schedule:
+            machine = item[0]
+            size = item[2]
+            duration = item[3]
+            if size > 0:
+                for t in range(duration):
+                    price_at_time = self.get_price_at_minute(prices, machine_times[machine] + t)/1000 # Euro/kWh
+                    energy_spent = (machine_power[machine]/machine_eff[machine])*1/60 # kWh
+                    total_cost += energy_spent*price_at_time
+                    total_energy += energy_spent
+
+                total_number_of_jobs += 1
+                total_production += size
+
+            machine_times[machine] += duration
+
+        return total_cost, total_energy, total_production, total_number_of_jobs
+    
     def prices_profile(self, prices_df):
         price_profile = []
         if prices_df.shape == (24,19):
@@ -511,8 +591,10 @@ class EnergyPrices:
                 # Convert prices array values from strings to floats
                 prices = np.array([float(item) for item in prices_str])
                 average = prices.mean()
+                max_lim = prices.max()
+                threshold = (max_lim-average)*0.25 + average
                 for price in prices:
-                    if price > average:
+                    if price > threshold:
                         price_profile.extend([2,2,2,2])
                     else:
                         price_profile.extend([1,1,1,1])
@@ -523,7 +605,7 @@ class EnergyPrices:
                 else:
                     print(e)
 
-        return price_profile
+        return price_profile, prices
 
 
 class PV:

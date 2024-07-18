@@ -3,7 +3,7 @@ import streamlit as st
 from energy_module.energyp import EnergyPrices
 from energy_module.energyp import Helper
 from energy_module.energyp import PV
-from schedule_plot import get_schedule_plot
+from schedule_plot import get_schedule_plot, get_power
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
@@ -19,12 +19,10 @@ def main():
     st.sidebar.title("User input data")
     generate = st.sidebar.button(label="Generate random schedule",use_container_width=True)
     pv_installed_capacity = st.sidebar.slider("PV installed capacity in kW", 0, 200, 50)/1000
+    option = st.sidebar.selectbox("Schedule color scale",("energy","size","actual_duration", "reward","assigned_to"))
 
-    current_hour = datetime.now().hour
-    if current_hour > 15:
-        date_pick = st.sidebar.date_input(label="Select date",value=datetime.now()+timedelta(days=0))
-    else:
-        date_pick = st.sidebar.date_input(label="Select date",value=datetime.now()+timedelta(days=-1)) # timedelta is kept for debuging purposes
+    #current_hour = datetime.now().hour
+    date_pick = st.sidebar.date_input(label="Select date",value=datetime.now() + timedelta(days=0)) # timedelta is kept for debuging purposes
 
     if generate:
         scheduler = Helper().get_scheduler(load=False)
@@ -34,9 +32,6 @@ def main():
     sch_df = scheduler.get_schedule()
 
     # Data retrieval
-    # power data
-    pw_df = scheduler.get_power()
-    print(pw_df)
 
     # Energy prices data
     prices_df = EnergyPrices().get_prices(date_pick)
@@ -44,14 +39,23 @@ def main():
     # Generation Capacity data
     caps_df = PV().get_caps(date_pick)
 
-    # Metrics
-    performance, total_cost, total_energy, total_production, total_number_of_jobs = EnergyPrices().metrics(prices_df,scheduler)
-    print("performance {}, total_cost {}, total_energy {}, total_production {}, total_number_of_jobs {}.".format(performance, total_cost, total_energy, total_production, total_number_of_jobs ))
-
     #Scheduler plot
+    prices_profile, prices = EnergyPrices().prices_profile(prices_df)
+    schedule_list, fig1, fig11 = get_schedule_plot(prices_profile, color=option) # $$
+    
+    #old scheduler
     dates = pd.date_range(datetime.now().strftime("%Y-%m-%d"), periods=12, freq='2h')
-    x_values = [i*60*2 for i in range(12)]
+    x_values = [i*120 for i in range(12)]
     x_values3 = [prices_df['Start date'][i*2] for i in range(12)]
+
+    # power data
+    pw_df = scheduler.get_power()
+    schedule = scheduler._get_schedule(schedule_list, date_pick)
+    #pw_df = scheduler._get_power(schedule)
+    print(pw_df)
+
+    # Metrics
+    _total_cost, _total_energy, _total_production, _total_number_of_jobs = EnergyPrices()._metrics(schedule_list, prices)
 
 
     fig2 = go.Figure()
@@ -74,7 +78,7 @@ def main():
                 fill='tozeroy',
             ))
 
-    fig2.update_xaxes(tickvals=x_values, ticktext=[d.strftime('%H:00') for d in dates])
+    #fig2.update_xaxes(range=[date_pick, date_pick+timedelta(hours=24)]) # pending
     fig2.update_layout(
         height=300,
         title="Factory total power",
@@ -95,15 +99,17 @@ def main():
         )
     )
 
-    fig3 = px.area(prices_df,x="Start date", y="Germany/Luxembourg [€/MWh] Original resolutions",line_shape='hv',title="Energy prices")
-    fig3.update_xaxes(tickvals=x_values3, ticktext=[d.strftime('%H:00') for d in dates])
+    fig3 = px.line(prices_df,x="Start date", y="Germany/Luxembourg [€/MWh] Original resolutions",line_shape='hv',title="Energy prices")
+    fig3.update_xaxes(tickvals=x_values3, ticktext=[d.strftime('%H:00') for d in dates], range=[0, 24]) # working
 
     # PV data
     pv_power = PV().get_pv_power(pv_installed_capacity, date_pick)
     if pv_power is not None:
         savings_df = PV().get_power_difference(pv_power,scheduler,date_pick)
+        print(savings_df)
         fig4 = px.line(savings_df,title="Day-ahead PV generation prediction + energy savings (without energy storage system)")
-        #fig4.update_xaxes(tickvals=x_values3, ticktext=[d.strftime('%H:00') for d in dates])
+        #fig4.update_xaxes(tickvals=x_values3, ticktext=[d.strftime('%H:00') for d in dates], range=[0, 1440]) # not working
+        fig4.update_xaxes(range=[date_pick, date_pick+timedelta(hours=24)]) # working
         fig4.update_layout(
             yaxis_title="Energy [kWh]",
             xaxis_title="Time",
@@ -122,43 +128,36 @@ def main():
         st.subheader("Day-ahead job schedule and energy prices forecast")
 
         row1 = st.columns(2)
-        row2 = st.columns(3)
-        # metrics = [
-        #     {"label": "Scheduler performance (production/(energy × cost))", "value": locale.format_string("%.4f kg/(kWh × €)",performance)},
-        #     {"label": "Total energy cost", "value": locale.format_string("%.2f €",total_cost)},
-        #     {"label": "Total energy usage", "value": locale.format_string("%.2f kWh",total_energy)},
-        #     {"label": "Total production", "value": locale.format_string("%.0f kg",total_production)},
-        #     {"label": "Total jobs completed", "value": f"{total_number_of_jobs} jobs"},
-        # ]
+        row2 = st.columns(4)
+
         metrics = [
-            {"label": "Scheduler performance (production/(energy × cost))", "value": f"{performance:.2} kg/(kWh × €)"},
-            {"label": "Total energy cost", "value": f"{total_cost:.5} €"},
-            {"label": "Total energy usage", "value": f"{total_energy:.6} kWh"},
-            {"label": "Total production", "value": f"{total_production:.7} kg"},
-            {"label": "Total jobs completed", "value": f"{total_number_of_jobs} jobs"},
+            {"label": "cost/production", "value": f"{_total_cost/_total_production:.2f} €/ton"},
+            {"label": "energy/production", "value": f"{_total_energy/_total_production:.2f} kWh/ton"},
+            {"label": "Total energy cost", "value": f"{_total_cost:.2f} €"},
+            {"label": "Total energy usage", "value": f"{(_total_energy):.0f} kWh"},
+            {"label": "Total production", "value": f"{_total_production:.0f} Tons"},
+            {"label": "Total jobs completed", "value": f"{_total_number_of_jobs} jobs"},
         ]
         for i,col in enumerate((row1 + row2)):
             cont = col.container(height=120)
             cont.metric(metrics[i]["label"],metrics[i]["value"],)
 
-        option = st.selectbox("Select color scale variable",("energy","size","actual_duration", "reward","assigned_to"))
-        prices_profile = EnergyPrices().prices_profile(prices_df)
-        fig1, fig11 = get_schedule_plot(prices_profile, color=option) # $$
         st.plotly_chart(fig1,use_container_width=True)
-        st.plotly_chart(fig11)
+        #st.plotly_chart(fig11)
         with st.expander("Machine parameters"):
             m_params = pd.DataFrame([[m.id,m.speed,m.energy_usage] for m in scheduler.machines],columns=['Machine','Speed [kg/min]','Energy usage [kWh/min]'])
             m_params.set_index('Machine')
             st.dataframe(m_params,hide_index=True)
 
-        st.plotly_chart(fig2, use_container_width=True)
-
         # Energy prices Data
         st.plotly_chart(fig3, use_container_width=True)
 
-        # PV Data
+        # PV energy plots
         if pv_power is not None:
             st.plotly_chart(fig4, use_container_width=True)
+
+        # Plant power plots
+        st.plotly_chart(fig2, use_container_width=True)
 
         # PV data
         st.subheader("Dataframes")
