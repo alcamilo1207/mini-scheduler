@@ -61,14 +61,20 @@ class Scheduler:
     Generates daily schedules with synthetic data.
     -> Time resolution: 1 minute
     """
-    def __init__(self):
+    def __init__(self, n_machines = 3):
         self.n_jobs = 0
         self.n_machines = 0
         self.jobs = []
         self.machines = []
 
+        default_eu = [0.75, 1, 1.25]
+        for i in range(n_machines):
+            self.n_machines += 1
+            self.machines.append(Machine(id = self.n_machines-1, speed = 132, energy_usage = default_eu[i]))
+
     def __str__(self):
         return f"jobs {self.n_jobs}, Machines: {self.n_machines}"
+    
 
     def load(self,filename="scheduler"):
         with open(f'{filename}.pkl', 'rb') as file:
@@ -206,35 +212,37 @@ class Scheduler:
         
         return df
     
-    def _get_power(self, schedule):
-        power_schedules = []
-        for i, m in enumerate(self.machines):
-            m_label = f"machine {i}"
-            m_schedule = schedule[schedule["assigned_to"] == m_label]
-            idle_times = m_schedule[m_schedule["name"] == "job 0"]
-            it_int = [self.convert_timestamp_to_minutes(start, duration) for start, duration in
-                      zip(idle_times["start_timestamp"], idle_times["actual_duration"])]
-            m_power = m.speed * m.energy_usage
-            m_pw_sch = np.full(1440, m_power)
-            if len(it_int) > 0:
-                for it in it_int:
-                    start, end = it[0], it[1]
-                    m_pw_sch[start:end] = 0.0
+    def _get_power(self, schedule, date):
+        machine_speeds = [132,132,132] # kg/h
+        machine_eu = [0.75, 1, 1.25] # kWh/kg
+        np_schedule = np.array(schedule)
+        machines = np.unique(np_schedule[:,0])
+        cols = [f"machine {i}" for i in range(len(machines))]
+        cols.append("Total power")
 
-            power_schedules.append(m_pw_sch)
+        power_data = np.zeros((96, len(machines) + 1))
 
-        total_power = np.copy(power_schedules[0])
-        for i in range(1, len(power_schedules)):
-            total_power += power_schedules[i]
+        timestamps = pd.date_range(date, periods=96, freq="15min")
 
-        power_schedules.append(total_power)
-        start_time = schedule["start_timestamp"][0]
-        timestamps = pd.date_range(start_time,periods=1440,freq='1min')
-        cols = [f'Machine {i}' for i in range(np.shape(power_schedules)[0]-1)]
-        cols.append('Total power')
+        df = pd.DataFrame(power_data,index=timestamps, columns = cols)
 
-        df = pd.DataFrame(np.transpose(power_schedules),index=timestamps,columns=cols)
-        
+        for item in np_schedule:
+            id = int(item[0][-1])
+            energy = item[1]
+            actual_duration = int(item[4]/15)
+            start_timestamp = item[6]
+            if energy == 0:
+                df.at[start_timestamp, machines[id]] = 0
+            else:
+                for i in range(actual_duration):
+                    df.at[start_timestamp+timedelta(minutes=i*15), machines[id]] = machine_speeds[id]*machine_eu[id]
+
+        if len(df) > 96:
+            df = df.drop(index=date+timedelta(days=1))
+
+        for i, m in enumerate(machines):
+            df["Total power"] += df[m]
+
         return df
 
     def schedule_job(self, job, machine, idle_prob = 0.1):
@@ -316,7 +324,7 @@ class Scheduler:
                 pending_jobs = self.get_pending_jobs()
                 break
 
-    def main(self, n_jobs,n_machines, choice, method=None, idle_prob = 0.15):
+    def main(self, n_jobs, n_machines, choice, method=None, idle_prob = 0.15):
         ## Load or create an schedule from scratch
         if choice == "load":
             self.load()
@@ -557,34 +565,25 @@ class EnergyPrices:
 
         return performance, total_cost, total_energy, total_production, total_number_of_jobs
     
-    def _metrics(self, schedule, prices):
-        machine_power = [132,132,132] # kW
-        machine_eff = [1.5, 1, 0.5]
-        machine_times = [0, 0, 0]
-        total_cost = 0
-        total_number_of_jobs = 0
-        total_production = 0
-        total_energy = 0
-        for item in schedule:
-            machine = item[0]
-            size = item[2]
-            duration = item[3]
-            if size > 0:
-                for t in range(duration):
-                    price_at_time = self.get_price_at_minute(prices, machine_times[machine] + t)/1000 # Euro/kWh
-                    energy_spent = (machine_power[machine]/machine_eff[machine])*1/60 # kWh
-                    total_cost += energy_spent*price_at_time
-                    total_energy += energy_spent
+    def _metrics(self, schedule, prices, pw_df):
+        total_cost, total_energy, total_production, total_number_of_jobs = 0,0,0,0
+        totals = pw_df.sum()
+        total_energy = totals["Total power"]/4
 
+        for item in schedule:
+            size = item[2]
+            if size > 0:
                 total_number_of_jobs += 1
                 total_production += size
 
-            machine_times[machine] += duration
+        for i, power in enumerate(pw_df["Total power"]):
+            price = prices[int(i/60)]/1000
+            total_cost += power*price*(15/60)
 
         return total_cost, total_energy, total_production, total_number_of_jobs
     
     def prices_profile(self, prices_df):
-        price_profile = []
+        price_profile = np.ones((96,))
         if prices_df.shape == (24,19):
             prices_str = prices_df[self.region].values
             try:
@@ -593,11 +592,13 @@ class EnergyPrices:
                 average = prices.mean()
                 max_lim = prices.max()
                 threshold = (max_lim-average)*0.25 + average
-                for price in prices:
+                for i, price in enumerate(prices):
                     if price > threshold:
-                        price_profile.extend([2,2,2,2])
-                    else:
-                        price_profile.extend([1,1,1,1])
+                        price_profile[i] = 2
+                    # else:
+                    #     price_profile.extend([1,1,1,1])
+
+                return price_profile, prices
 
             except Exception as e:
                 if str(e) == "could not convert string to float: '-'":
@@ -605,9 +606,10 @@ class EnergyPrices:
                 else:
                     print(e)
 
-        return price_profile, prices
-
-
+                return price_profile, None
+        else:
+            return price_profile, None
+        
 class PV:
     def __init__(self, col_name = metadata["pv col name"]):
         self.col_name = col_name
@@ -706,9 +708,9 @@ class PV:
         scaled_pv_in_kW = pvs * installed_capacity_in_MW * 1000 / cap
         return scaled_pv_in_kW
 
-    def get_pv_power(self,installed_capacity_in_MW, date):
+    def get_pv_power(self,installed_capacity_in_MW, date, resolution="15min"):
         """
-        Return a 1-minute resolution timeseries with the power generated by a PV array with a given installed capacity.
+        Return a 1-minute or 15-minutes resolution timeseries with the power generated by a PV array with a given installed capacity.
         """
         year = date.year
         cap = self.get_historic_capacity(year)
@@ -722,14 +724,18 @@ class PV:
         pv_df[metadata["pv col name"]] = scaled_pv_in_kW
         pv_df.columns = ["PV power [kW]"]
 
-        # Resample to 1-minute resolution
-        df_resampled = pv_df.resample('min').mean()
+        # Resample to resolution
+        if resolution == "1min" or resolution == "min":
+            df_resampled = pv_df.resample('min').mean()
+        else:
+            df_resampled = pv_df.resample('15min').mean()
 
         # Forward fill to propagate last valid observation forward
         df_resampled['PV power [kW]'] = df_resampled['PV power [kW]'].ffill()
 
         #Drop the last row
         df_resampled = df_resampled.drop(df_resampled.index[-1])
+
         return df_resampled.values.squeeze()
 
     def get_pvs(self, date):
@@ -906,6 +912,52 @@ class PV:
         index = pd.date_range(date,periods=1440,freq='min')
 
         return pd.DataFrame(data,index=index)
+    
+    def _get_power_difference(self, pv_power, schedule, date):
+
+        # Get required power
+        power = Scheduler()._get_power(schedule, date)
+        required_power = power['Total power'].values.squeeze()
+
+
+        savings = []
+        for i in range(96):
+            if pv_power[i] > required_power[i]:
+                savings.append(required_power[i])
+            else:
+                savings.append(pv_power[i])
+                
+        savings = np.array(savings)
+        data = {
+            "required energy" : required_power.tolist(),
+            "pv energy" : pv_power.tolist(),
+            "energy from grid" : (required_power-savings).tolist(),
+            "energy saved" : savings.tolist()
+        }
+
+        #print("pv_power", pv_power)
+
+        index = pd.date_range(date,periods=96,freq='15min')
+
+        return pd.DataFrame(data,index=index)
+    
+    def metrics(self, prices, schedule_list, savings_df, pw_df):
+        _total_cost, _total_energy, _total_production, _total_number_of_jobs = EnergyPrices()._metrics(schedule_list, prices, pw_df)
+        total_energy_saved, total_cost, pv_energy_generated = 0, 0, 0
+        totals = savings_df.sum()
+        pv_energy_generated = totals["pv energy"]/4
+        total_energy_saved = totals["energy saved"]/4
+
+        for i, power in enumerate(savings_df["energy from grid"]):
+            price = prices[int(i/60)]/1000
+            total_cost += power*price*(15/60)
+
+        total_savings = _total_cost - total_cost
+        delta_cost = int(-total_savings*100/_total_cost)
+        total_energy_usage = _total_energy - total_energy_saved
+        delta_energy = int(-total_energy_saved*100/_total_energy)
+
+        return total_cost, delta_cost, total_energy_usage, delta_energy, total_savings, pv_energy_generated
 
 
 class Helper:

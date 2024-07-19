@@ -74,7 +74,8 @@ def get_schedule_plot(prices_fx = None, color="energy"):
                      "energy": "energy [kWh]",
                      "size" : "Job size [ton]"
                  },)#
-    fig1.update_xaxes(tickvals=x_values, ticktext=[d.strftime('%H:00') for d in dates], range=[0, 1440])
+    fig1.update_xaxes(tickvals=x_values, ticktext=[d.strftime('%H:00') for d in dates], range=[0, 1440], title_text="")
+    fig1.update_yaxes(tickvals=[0, 1, 2], ticktext=["Press 0", "Press 1", "Press 2"], title_text="")
     fig1.update_traces(width=.9)
     fig1.update_coloraxes(colorbar={'orientation':'h', 'thickness':15, 'y': 1.1})
 
